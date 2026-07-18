@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,13 @@ from app.models.db_models import User
 from app.models.userschemas import UserCreate, UserLogin, UserResponse, Token
 from app.services.auth_utils import hash_password, verify_password, create_access_token
 
+
+# In production (frontend + backend on different domains) the auth cookie is
+# cross-site, so it needs SameSite=None + Secure. Locally (both on localhost)
+# it is same-site over http, so SameSite=Lax + Secure=False is required instead.
+IS_PROD = os.getenv("ENVIRONMENT") == "production"
+COOKIE_SECURE = IS_PROD
+COOKIE_SAMESITE = "none" if IS_PROD else "lax"
 
 
 router = APIRouter(prefix="/api/user", tags=["users"])
@@ -50,9 +59,9 @@ def login(payload:UserLogin, response: Response, db:Session = Depends(get_db)):
     response.set_cookie(
         key="access_token",
         value=token,
-        httponly=True,          
-        secure=False,           
-        samesite="lax",
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=60 * 60 * 24,   
         path="/",
     )
