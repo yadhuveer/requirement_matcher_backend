@@ -1,68 +1,119 @@
-import asyncio
-import json
-from anthropic import AsyncAnthropic
-from app.config import settings
- 
-client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
- 
+"""
+Global dedupe over the combined, extracted feature list (requirements.md §2.6).
 
-DEDUPE_SYSTEM_PROMPT = """You are given a list of software features extracted from different sections of the SAME project document. Because the sections overlapped, the list may contain TRUE DUPLICATES: the exact same capability extracted more than once, described in slightly different words.
- 
-Your ONLY job is to remove those true duplicates. This is a duplicate-removal task, NOT a summarization or consolidation task.
- 
-DEFAULT BEHAVIOUR: KEEP FEATURES SEPARATE. When in doubt, do NOT merge. It is far better to leave two similar features separate than to wrongly combine two distinct capabilities. A later step matches these features against what new clients ask for, and clients ask for capabilities individually — so each distinct capability must remain its own feature.
- 
-ONLY merge two features when they describe the SAME single capability — i.e. one is clearly just a reworded re-extraction of the other, produced because the document sections overlapped. If you removed one, a reader would lose NO information, because the other says the same thing.
- 
-Do NOT merge two features if each one could be requested, built, or removed independently of the other. If a client could plausibly ask for one WITHOUT the other, they are DIFFERENT features and must stay separate — even if they are related, complementary, part of the same workflow, or commonly sold together. When unsure whether two features are the same capability or two related capabilities, KEEP THEM SEPARATE.
- 
-Test to apply to any pair before merging: "Are these two descriptions saying the same thing twice, or are they two different things that happen to be related?" Only the first case is a duplicate. The second must stay separate.
- 
-If a single entry actually bundles two or more independently-requestable capabilities together, SPLIT it into separate features.
- 
-When you do merge a true duplicate:
-- Keep the single most complete, plain-language, self-contained description.
-- Pick the single most appropriate domain.
-- Combine tech_details (comma-separated, no duplication).
- 
-Each output feature keeps exactly these fields: "name", "description", "domain", "tech_details".
- 
-Return ONLY a JSON array of the cleaned feature objects. No markdown, no explanation, no preamble."""
- 
- 
+Rewritten to be SCALABLE and LangSmith-traced:
+- Built on LangChain `ChatAnthropic` + `.with_structured_output(DedupeDecision)`
+  → schema-guaranteed output (no ```json parsing) AND it now shows up in LangSmith.
+- The model returns DECISIONS ONLY — `keep_ids` (uniques, by index), `merged`
+  (only the duplicate groups it collapses), and `drop_ids` (redundant coarse
+  summaries). Python assembles the final list. Output stays tiny → never
+  truncates, at any document size (the old version echoed the whole list and
+  silently truncated on large BRDs).
+- Merge-only: the "split bundled entries" behaviour is gone — the extraction
+  verifier owns all granularity/over-split decisions now.
+
+Public signature is unchanged: `dedupe_features(list[dict]) -> list[dict]`.
+"""
+
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import SystemMessage, HumanMessage
+
+from app.config import settings
+from app.models.extraction_schemas import DedupeDecision
+
+
+_llm = ChatAnthropic(
+    model="claude-sonnet-4-6",
+    temperature=0,
+    api_key=settings.ANTHROPIC_API_KEY,
+)
+_dedupe_llm = _llm.with_structured_output(DedupeDecision)
+
+
+DEDUPE_SYSTEM_PROMPT = """You are given a NUMBERED list of software features extracted from different sections of the SAME project document. Because sections overlap, and because summary/scope sections restate detailed requirements, the list contains DUPLICATES: the same capability appearing more than once.
+
+Your ONLY job is to identify duplicates. This is a duplicate-removal task — NOT summarization, and NOT splitting. Do not invent, rename, or re-scope features beyond what merging requires.
+
+Return DECISIONS ONLY (never re-list every feature). For each feature index you decide one of three things:
+
+1. keep_ids — the feature is UNIQUE (nothing else in the list is the same capability). Keep it unchanged.
+
+2. merged — the feature is a TRUE DUPLICATE of one or more others: the SAME single capability, just re-extracted in slightly different words. Put their indices together in one `merged` group and synthesize ONE feature: the single most complete plain-language description (lose NO information), the most appropriate domain, and combined tech_details (comma-separated, no duplication).
+
+3. drop_ids — the feature is a REDUNDANT COARSE/SUMMARY item that is already FULLY covered by SEVERAL finer features present in the list. Example: a summary bullet "Cart, Wishlist & Checkout" when the list also has separate "Add to Cart", "Cart Management", "Wishlist", and "Checkout" features. Drop the coarse one (it adds nothing) and keep the finer ones. Only drop when NO information is lost.
+
+CRITICAL invariant: EVERY index in the list must appear EXACTLY ONCE — either in keep_ids, or inside exactly one merged group's from_ids, or in drop_ids. Never in two of them, never in none.
+
+When unsure whether two features are the same capability or two different-but-related capabilities, KEEP THEM SEPARATE (put both in keep_ids). It is far better to leave a near-duplicate than to wrongly collapse two distinct capabilities — a later step matches these against what new clients ask for, and clients ask for capabilities individually."""
+
+
+def _assemble(features: list[dict], decision: DedupeDecision) -> list[dict]:
+    """Build the final feature list from the model's decisions, defensively.
+
+    Guarantees no feature is silently lost: any index the model failed to account
+    for is kept as-is (better an accidental duplicate than a dropped capability).
+    """
+    n = len(features)
+    result: list[dict] = []
+    used: set[int] = set()
+
+    # 1. Merged groups → the single synthesized feature.
+    for m in decision.merged:
+        ids = [i for i in m.from_ids if 0 <= i < n and i not in used]
+        if not ids:
+            continue
+        used.update(ids)
+        if len(ids) == 1:
+            # Not actually a group — keep the original rather than a rewrite.
+            result.append(features[ids[0]])
+        else:
+            result.append({
+                "name": m.name,
+                "description": m.description,
+                "domain": m.domain,
+                "tech_details": m.tech_details,
+            })
+
+    # 2. Explicit drops → removed (just mark them used).
+    for i in decision.drop_ids:
+        if 0 <= i < n:
+            used.add(i)
+
+    # 3. keep_ids → original features, unchanged.
+    for i in decision.keep_ids:
+        if 0 <= i < n and i not in used:
+            used.add(i)
+            result.append(features[i])
+
+    # 4. Safety net: anything the model forgot → keep it (never lose a feature).
+    for i in range(n):
+        if i not in used:
+            result.append(features[i])
+
+    return result
+
+
 async def dedupe_features(features: list[dict]) -> list[dict]:
-    """One LLM pass over the whole list to merge duplicates and near-duplicates."""
     if len(features) <= 1:
         return features
- 
-    features_json = json.dumps(features, ensure_ascii=False, indent=2)
- 
-    response = await client.messages.create(
-        model=settings.LLM_MODEL,
-        max_tokens=8000,
-        temperature=0,
-        system=DEDUPE_SYSTEM_PROMPT,
-        messages=[
-            {"role": "user", "content": f"Feature list:\n{features_json}"}
-        ],
+
+    # Present the list with a stable index id per feature; the model references
+    # these ids in keep_ids / from_ids / drop_ids.
+    listing = "\n".join(
+        f"[{i}] name: {f.get('name', '')} | domain: {f.get('domain', '')} | "
+        f"description: {f.get('description', '')}"
+        for i, f in enumerate(features)
     )
- 
-    raw = response.content[0].text.strip()
-    raw = raw.replace("```json", "").replace("```", "").strip()
- 
+
     try:
-        cleaned = json.loads(raw)
-        if not isinstance(cleaned, list) or not cleaned:
-            return features   # fall back to raw list rather than losing everything
-        result = []
-        for f in cleaned:
-            if isinstance(f, dict) and f.get("description", "").strip():
-                result.append({
-                    "name": str(f.get("name", "")).strip(),
-                    "description": str(f["description"]).strip(),
-                    "domain": str(f.get("domain", "")).strip(),
-                    "tech_details": str(f.get("tech_details", "")).strip(),
-                })
-        return result if result else features
-    except json.JSONDecodeError:
-        return features       # same graceful fallback
+        decision: DedupeDecision = await _dedupe_llm.ainvoke(
+            [
+                SystemMessage(DEDUPE_SYSTEM_PROMPT),
+                HumanMessage(f"Feature list ({len(features)} items):\n{listing}"),
+            ]
+        )
+    except Exception:
+        # On any failure, fall back to the raw list rather than losing everything.
+        return features
+
+    return _assemble(features, decision)

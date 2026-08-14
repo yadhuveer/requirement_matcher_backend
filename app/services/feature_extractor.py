@@ -30,7 +30,7 @@ Return ONLY a JSON array of these objects. No markdown, no explanation, no pream
 
 
 async def extract_features_from_chunk(chunk: str) -> list[dict]:
-    """Send ONE chunk to Claude and get back a list of rich feature objects."""
+    
     response = await client.messages.create(
         model=settings.LLM_MODEL,
         max_tokens=3000,
@@ -63,7 +63,7 @@ async def extract_features_from_chunk(chunk: str) -> list[dict]:
 
 
 async def extract_features_from_chunks(chunks: list[str]) -> list[dict]:
-    """Extract from all chunks, at most `max_concurrent` at a time."""
+    
     max_concurrent = 3
     semaphore = asyncio.Semaphore(max_concurrent)
 

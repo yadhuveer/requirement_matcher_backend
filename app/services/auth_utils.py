@@ -15,7 +15,7 @@ def verify_password(plain_password:str, hashed_password:str)->bool:
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES=60*24 #1day
+ACCESS_TOKEN_EXPIRE_MINUTES=60*24 
 
 def create_access_token(data:dict)->str:
     to_encode = data.copy()

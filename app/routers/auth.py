@@ -9,9 +9,7 @@ from app.models.userschemas import UserCreate, UserLogin, UserResponse, Token
 from app.services.auth_utils import hash_password, verify_password, create_access_token
 
 
-# In production (frontend + backend on different domains) the auth cookie is
-# cross-site, so it needs SameSite=None + Secure. Locally (both on localhost)
-# it is same-site over http, so SameSite=Lax + Secure=False is required instead.
+
 IS_PROD = os.getenv("ENVIRONMENT") == "production"
 COOKIE_SECURE = IS_PROD
 COOKIE_SAMESITE = "none" if IS_PROD else "lax"

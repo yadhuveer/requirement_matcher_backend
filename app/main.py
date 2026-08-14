@@ -8,7 +8,7 @@ app= FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    # Cookies require an exact origin — browsers reject "*" when credentials are used.
+    
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:5174",

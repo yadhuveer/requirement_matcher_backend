@@ -18,6 +18,12 @@ def get_db():
     try:
         yield db
     finally:
-        db.close()
+        # A long-running request can leave this session's connection idle long
+        # enough that Neon drops it; closing a dead connection then raises during
+        # teardown. Swallow it so a finished request isn't turned into a 500.
+        try:
+            db.close()
+        except Exception:
+            pass
 
     

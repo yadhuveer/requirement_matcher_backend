@@ -77,3 +77,54 @@ MODIFICATION_SYSTEM_PROMPT = """A client's requirement can be met by adapting a 
 Explain clearly and concisely WHAT would need to change to adapt the existing feature to the client's requirement. Focus on the practical differences a developer or the client would care about (e.g. different domain concepts, extra behaviour needed, data differences). Keep it to 1-3 short sentences, in plain language a non-technical person can follow.
 
 Return ONLY the explanation text. No preamble, no JSON, no quotes."""
+
+
+# =========================================================================== #
+# Composite matching graph (requirements.md §3)                               #
+# These power the structured-output nodes, so they carry NO "return JSON"      #
+# instruction — the Pydantic schema enforces the shape. They also reason over  #
+# a SELECTED SET of features (single OR combined), not just one candidate.     #
+# =========================================================================== #
+
+COVERAGE_SYSTEM_PROMPT = """You are matching a NEW client's requirement against a library of features a software agency has already built. You are given the requirement and a NUMBERED list of candidate features (retrieved by semantic similarity).
+
+Decide which candidate feature(s), if any, are REUSABLE to satisfy the requirement:
+- Focus on the underlying LOGIC / capability, NOT surface wording and NOT the business domain. A candidate from a DIFFERENT domain can still be reusable if its core logic fits (it will be marked as needing modification later). Only reject a candidate when its underlying logic is genuinely different — not merely because the domain differs.
+- If ONE candidate fully covers the requirement, select just that one.
+- If no single candidate covers it but a COMBINATION does, select the MINIMAL set of candidates that TOGETHER cover it.
+- If none are genuinely reusable, mark it not relevant and leave the selection empty.
+
+Give one overall confidence (0.0-1.0) that the selected set covers the requirement."""
+
+
+CLASSIFY_SET_SYSTEM_PROMPT = """A client's requirement has been matched to one or more features the agency already built (given below as a SET). Decide how reusable that set is for this requirement:
+
+- "exact_match": the selected feature(s) already do what the client wants and could be reused essentially as-is, with no meaningful change to their logic or behaviour. Cosmetic differences — wording, labels, or a different business domain that does NOT change how the feature actually works — still count as exact. A domain difference on its own does not make it a modification if the feature would behave identically.
+- "needs_modification": the underlying logic is reusable, but the feature(s) must actually be adapted to fit the requirement — either because the requirement needs extra behaviour the feature(s) lack, or because the domain change forces real changes to the feature's logic, data, or rules (e.g. reusing a restaurant loyalty-points system for a student rewards system, where the entities and rules genuinely differ). A domain difference alone, with no change to how the feature works, is NOT a modification.
+
+Judge the WHOLE selected set together, based on the underlying logic and how much adaptation is realistically needed. Give a confidence 0.0-1.0."""
+
+
+EXACT_MATCH_SYSTEM_PROMPT = """A client's requirement is already satisfied by one or more features the agency has built (given below). Write a short, plain-language explanation FOR THE CLIENT of why the existing feature(s) already meet this requirement — what they do and how that covers what the client asked for.
+
+Keep it to 1-2 sentences, non-technical and reassuring. Return only the explanation, no preamble."""
+
+
+MODIFY_SET_SYSTEM_PROMPT = """A client's requirement can be met by adapting one or more features the agency already built (given below), but they need some modification.
+
+Explain clearly and concisely WHAT would need to change to adapt the existing feature(s) to fit the requirement. Focus on the practical differences that matter (different domain concepts, extra behaviour needed, data differences). If several features are combined, describe how they fit together. Keep it to 1-3 short sentences, in plain language a non-technical person can follow.
+
+Describe only what to ADD or CHANGE to meet the requirement. Never say that any part of the existing feature(s) we already built is "not needed" or should be removed — frame the adaptation positively, as building on what we have.
+
+If a reviewer's rejection of your previous attempt is included, treat it as instructions and fix exactly what it calls out."""
+
+
+CRITIC_SYSTEM_PROMPT = """You are reviewing a modification description that explains how an existing software feature (or set of features) would be adapted to meet a client's requirement. You are given the requirement, the existing feature(s), and the proposed modification description.
+
+Judge whether the description is GENUINELY USEFUL: is it concrete and specific about what must change, and does it actually address the gap between the existing feature(s) and the requirement?
+
+Reject it (valid = false) if it is vacuous, empty, generic filler, self-contradictory, merely restates the requirement without saying what to change, or claims the feature is not needed.
+
+Also reject it if the description says any part of the EXISTING feature(s) we already built is "not needed", "not required", or should be removed/discarded. The modification must describe what to ADD or CHANGE to meet the client's requirement — it must never frame the adaptation as trimming down or throwing away what we already built.
+
+When you reject, your reason must say concretely what is missing, so the next attempt can fix it. Otherwise mark it valid."""

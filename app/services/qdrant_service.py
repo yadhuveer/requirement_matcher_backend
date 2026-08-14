@@ -14,10 +14,7 @@ VECTOR_SIZE = 1536
 
 
 def ensure_collection():
-    """
-    Create the collection if it doesn't already exist.
-    Safe to call repeatedly - it only creates when missing.
-    """
+   
     existing = [c.name for c in client.get_collections().collections]
     if COLLECTION_NAME not in existing:
         client.create_collection(
@@ -30,12 +27,7 @@ def ensure_collection():
 
 
 def upsert_features(embedded_features: list[dict], project_id: int):
-    """
-    Store each feature's vector in Qdrant.
-    Uses the feature's DB id as the Qdrant point id, so a search hit
-    can be traced straight back to the Postgres row.
-    Payload carries the human-readable fields for filtering/inspection.
-    """
+    
     points = []
     for f in embedded_features:
         points.append(
@@ -53,5 +45,12 @@ def upsert_features(embedded_features: list[dict], project_id: int):
             )
         )
 
-    client.upsert(collection_name=COLLECTION_NAME, points=points)
+    # Upsert in batches so a large feature set doesn't become one giant write
+    # that times out against the (distant) Qdrant Cloud region.
+    BATCH_SIZE = 64
+    for start in range(0, len(points), BATCH_SIZE):
+        client.upsert(
+            collection_name=COLLECTION_NAME,
+            points=points[start:start + BATCH_SIZE],
+        )
     return len(points)
