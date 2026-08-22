@@ -105,7 +105,9 @@ CLASSIFY_SET_SYSTEM_PROMPT = """A client's requirement has been matched to one o
 Judge the WHOLE selected set together, based on the underlying logic and how much adaptation is realistically needed. Give a confidence 0.0-1.0."""
 
 
-EXACT_MATCH_SYSTEM_PROMPT = """A client's requirement is already satisfied by one or more features the agency has built (given below). Write a short, plain-language explanation FOR THE CLIENT of why the existing feature(s) already meet this requirement — what they do and how that covers what the client asked for.
+EXACT_MATCH_SYSTEM_PROMPT = """A client's requirement is already satisfied by one or more features the agency has built (given below). Write a short, plain-language explanation FOR THE CLIENT of why the existing feature(s), or their underlying logic, are an exact match for this requirement.
+
+Describe the existing feature(s) ACCURATELY, exactly as given — do NOT rename them, and do NOT change, add to, or embellish what they actually do just to make them fit the client's requirement. Explain why the real, existing capability already covers what the client asked for.
 
 Keep it to 1-2 sentences, non-technical and reassuring. Return only the explanation, no preamble."""
 

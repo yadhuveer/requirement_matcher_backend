@@ -12,7 +12,11 @@ from app.services.qdrant_service import ensure_collection, upsert_features
 from app.database import SessionLocal
 import asyncio
 from app.services.matching_graph import match_requirement
-from app.services.requirement_service import save_requirement_results
+from app.services.requirement_service import (
+    save_requirement_results,
+    list_user_analyses,
+    get_analysis_results,
+)
 from app.services.auth_dependency import get_current_user
 from app.models.db_models import User
 
@@ -74,3 +78,28 @@ async def extractFeatures(file:UploadFile=File(...),project_name:str=Form(...),c
         "requirement_count": len(results),
         "results": results,
     }
+
+
+@router.get("/history")
+async def analysis_history(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List the signed-in user's past analyses (newest first) with per-outcome counts."""
+    return {"analyses": list_user_analyses(db, current_user.id)}
+
+
+@router.get("/history/{project_id}")
+async def analysis_detail(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Full results of one past analysis (same shape as the analyze response)."""
+    data = get_analysis_results(db, project_id, current_user.id)
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not found",
+        )
+    return data
