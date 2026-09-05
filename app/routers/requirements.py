@@ -70,13 +70,18 @@ async def extractFeatures(file:UploadFile=File(...),project_name:str=Form(...),c
         saved = save_requirement_results(
             write_db, project_name, client_name, contact_info, list(results), user_id=current_user.id
         )
+        # Re-read the saved analysis so the response carries requirement ids
+        # (the chat/UI need them to tag & edit). Same shape + an `id` per result.
+        detail = get_analysis_results(write_db, saved["project_id"], current_user.id)
     finally:
         write_db.close()
 
+    saved_results = detail["results"] if detail else list(results)
+
     return {
         "project_id": saved["project_id"],
-        "requirement_count": len(results),
-        "results": results,
+        "requirement_count": len(saved_results),
+        "results": saved_results,
     }
 
 

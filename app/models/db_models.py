@@ -54,10 +54,16 @@ class NewProject(Base):
     project_name = Column(String, nullable=False)
     client_name = Column(String, nullable=True)
     contact_info = Column(String, nullable=True)
+    episodic_summary = Column(Text, nullable=True)   # chat agent: rolling episodic memory for this analysis
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     creator = relationship("User", back_populates="new_projects")
     features = relationship("NewFeature", back_populates="project")
+    chat_sessions = relationship(
+        "ChatSession",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
 
 
 
@@ -94,3 +100,39 @@ class NewFeatureMatch(Base):
 
     new_feature = relationship("NewFeature", back_populates="matches")
     completed_feature = relationship("CompletedFeature")
+
+
+# --------------------------------------------------------------------------- #
+# Chat agent (chatagent.md) — one analysis has many chat sessions; a session   #
+# has many messages. The analysis's rolling episodic memory is a single text   #
+# column on NewProject (above). All additive — nothing existing depends on it. #
+# --------------------------------------------------------------------------- #
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("new_projects.id"), nullable=False, index=True)
+    summary = Column(Text, nullable=True)   # this session's rolling conversation summary
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    project = relationship("NewProject", back_populates="chat_sessions")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.id",
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String, nullable=False)   # "user" | "assistant"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    session = relationship("ChatSession", back_populates="messages")

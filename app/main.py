@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers.auth import router as userRouter
 from app.routers.projects import router as projectRouter
 from app.routers.requirements import router as requirementRouter
+from app.routers.chat import router as chatRouter
 
 app= FastAPI()
 
@@ -22,6 +23,7 @@ app.add_middleware(
 app.include_router(userRouter)
 app.include_router(projectRouter)
 app.include_router(requirementRouter)
+app.include_router(chatRouter)
 
 @app.get("/health")
 def health_Check():

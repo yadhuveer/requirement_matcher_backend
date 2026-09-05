@@ -155,6 +155,7 @@ def get_analysis_results(db: Session, project_id: int, user_id: int) -> dict | N
             )
         results.append(
             {
+                "id": f.id,   # requirement id — used by the chat to tag/edit this requirement
                 "requirement_name": f.requirement_name,
                 "requirement_description": f.requirement_description,
                 "status": f.match_status,
